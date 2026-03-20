@@ -1,230 +1,261 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <time.h>
+#include <string.h>
+#include <limits.h>
+#include <quadmath.h>
 #include <math.h>
 
-typedef union {
-    // Реальное представление
-    float f;
-    double d;
-    long double ld;
-
-    // Машинное представление
-    uint32_t u32;
-    uint64_t u64;
-    __uint128_t u128;
-} U;
-
-int getMachine(const void* x, size_t type, __uint128_t* out)
+// Генерация случайного вещественного числа с p знаками после запятой
+__float128 randReal(double a, double b, size_t p)
 {
-    U u = {0};
+    // генерим в double
+    double u = (double)rand() / ((double)RAND_MAX + 1.0);
+    __float128 x = (__float128)(a + (b - a) * u);
 
-    if (x == NULL || out == NULL)
-        return 0;
+    // scale = 10^p 
+    __float128 scale = 1.0Q;
+    for (size_t i = 0; i < p; ++i) scale *= 10.0Q;
 
-    switch (type)
+    // округление до p знаков после запятой (к ближайшему)
+    if (x >= 0)
+        x = floorq(x * scale + 0.5Q) / scale;
+    else
+        x = -floorq((-x) * scale + 0.5Q) / scale;
+
+    return x;
+}
+
+void toMachine(
+        const void* number, // Число, которое нужно представить в машинном виде
+        size_t number_type, // Сколько байт выделяется для типа данных переменной number
+        size_t bit_qt,      // Сколько бит нужно для представления
+        char out[]          // Массив, в котором по символам хранится машинное представление 
+    )
+{
+    // Прочитать исходное значение в максимально широкую переменную
+    __float128 x;
+
+    if (number_type == sizeof(float))
     {
-    case 4:     // float -> 32 бит
-        u.f = *(const float*)x;
-        *out = u.u32;
-        return 1;
-
-    case 8:     // double -> 64 бит
-        u.d = *(const double*)x;
-        *out = u.u64;
-        return 1;
-
-    case 16:    // long double -> 128 бит
-        u.ld = *(const long double*)x;
-        *out = u.u128;
-        return 1;
-
-    default:
-        return 0;
-    }
-}
-
-int getReal(__uint128_t x, size_t type, void* out)
-{
-    U u = {0};
-
-    if (out == NULL)
-        return 0;
-
-    switch (type)
+        float t;
+        memcpy(&t, number, sizeof t);
+        x = (__float128)t;
+    } 
+    else if (number_type == sizeof(double)) 
     {
-    case 4:     // 32 бит -> float
-        u.u32 = (uint32_t)x;
-        *(float*)out = u.f;
-        return 1;
+        double t;
+        memcpy(&t, number, sizeof t);
+        x = (__float128)t;
+    } 
+    else if (number_type == sizeof(__float128)) 
+        memcpy(&x, number, sizeof x);
+    else return;
 
-    case 8:     // 64 бит -> double
-        u.u64 = (uint64_t)x;
-        *(double*)out = u.d;
-        return 1;
+    // Привести к целевому формату и считать биты
+    unsigned long long lo = 0, hi = 0;
 
-    case 16:    // 128 бит -> long double
-        u.u128 = x;
-        *(long double*)out = u.ld;
-        return 1;
-
-    default:
-        return 0;
+    if (bit_qt == 32)
+    {
+        float y = (float)x; // округление до float
+        unsigned int u32 = 0;
+        memcpy(&u32, &y, sizeof u32); 
+        lo = (unsigned long long)u32; // 32 бита в младшей части
     }
-}
-
-// Запись машинного представления в файл f
-void print_bits(FILE* f, __uint128_t x, int bits_count)
-{
-    for (int i = bits_count - 1; i >= 0; i--)
-        fputc(((x >> i) & 1) ? '1' : '0', f);
-    // x >> i  : сдвигаем число вправо на i бит,
-    // чтобы интересующий нас бит оказался на младшей позиции
-    // & 1 : оставляем только этот младший бит (0 или 1)
-    // ? '1':'0' : если бит равен 1, печатаем символ '1', иначе печатаем символ '0'
-    // fputc(..., f) : записываем этот символ в файл f
-}
-
-// Генерация случайного вещественного числа от a до b с p знаками после запятой
-// Реализовано после main
-long double rand_num(long double a, long double b, int p);
-
-// Создание файла с заголовком
-// Реализовано после main
-FILE* createFile(const char* repository, int numVar, int bits, const char* header, const char* h);
-
-int main() {
-    // Для случайных чисел
-    srand(time(NULL));
-
-    int n;       // Количество вариантов
-    int k;       // Количество заданий в вариантах
-    int bits;  // Разрядность чисел в тестовых заданиях
-    double a, b;    // Диапозон вещественных чисел в заданиях
-    int p;       // Количество знаков после запятой в числах
-    
-    long double number;
-
-    FILE *input = fopen("inp32.txt", "r");  // Открытие файл с данными для 32 бит
-    // FILE *input = fopen("inp64.txt", "r");  // Открытие файл с данными для 64 бит
-    // FILE *input = fopen("inp128.txt", "r"); // Открытие файл с данными для 128 бит
-
-    fscanf(input, "%d", &n);         // Запись количества вариантов
-    fscanf(input, "%d", &k);         // Запись количества заданий в вариантах
-    fscanf(input, "%d", &bits);    // Запись разрядности чисел в тестовых заданиях
-    fscanf(input, "%lf %lf", &a, &b); // Запись диапозона вещественных чисел в заданиях
-    fscanf(input, "%d", &p);         // Запись количества знаков после запятой в числах
-
-    fclose(input); // Закрытие файла с данными
-    
-    if (bits != 32 && bits != 64 && bits != 128) {
-        printf("В файле оказались неверные данные (битность)\n");
-        return -1;
+    else if (bit_qt == 64) 
+    {
+        double y = (double)x;       // округление до double
+        memcpy(&lo, &y, sizeof y);  // 64 бита
     }
+    else if (bit_qt == 128) 
+    {
+        __float128 y = x; // уже __float128
+        memcpy(&lo, (const unsigned char*)&y + 0, 8);
+        memcpy(&hi, (const unsigned char*)&y + 8, 8);
+    }
+    else return;
 
-    // Создаем папки
-    system("mkdir -p Задания");
-    system("mkdir -p Проверка");
-    
-    // Каждый вариант
-    for (int i = 1; i <= n; i++) 
-    {   
-        // Создаём файлы с заголовками
-        FILE* student = createFile("Задания", i, bits, "| N | x |\n", "|:-|:-|\n");
+    // Вывести биты 
+    for (size_t i = 0; i < bit_qt; ++i) {
+        unsigned sh = (unsigned)(bit_qt - 1 - i);
+        unsigned bit;
 
-        FILE* teacher = createFile("Проверка", i, 0, 
-            "| N | X | Машинное представление | Ошибка |\n", "|:-|:-|:-|:-|\n");
-
-        for (int j = 1; j <= k; j++)
+        if (bit_qt == 32 || bit_qt == 64) 
+            bit = (unsigned)((lo >> sh) & 1ull);
+        else 
         {
-            number = rand_num(a, b, p); // Вещественное число
-
-            long double err = 0.0L; // Ошибка
-
-            fprintf(student, "| %d | %.*Lf |\n", j, p, number); // Записываем задание
-
-            if (bits == 32)
-            {
-                float x = (float)number;  // Исходное число приводим к типу float
-                float y;        // Сюда восстановим число обратно из машинного представления
-                __uint128_t m;  // Здесь будет храниться машинное представление числа x
-
-                getMachine(&x, sizeof(float), &m); // Переводим float x в его машинное представление
-                getReal(m, sizeof(float), &y); // Восстанавливаем число y из машинного представления m
-
-                err = fabsl(number - (long double)y); // Вычисляем ошибку после перевода и восстановления
-
-                fprintf(teacher, "| %d | %.*Lf | ", j, p, number); // Печатаем номер и исходное число
-                print_bits(teacher, m, 32); // Печатаем 32 бита машинного представления
-                fprintf(teacher, " | %Le |\n", err); // Печатаем ошибку
-            }
-            else if (bits == 64)
-            {
-                double x = (double)number;
-                double y;
-                __uint128_t m;
-
-                getMachine(&x, sizeof(double), &m);
-                getReal(m, sizeof(double), &y);
-
-                err = fabsl(number - (long double)y);
-
-                fprintf(teacher, "| %d | %.*Lf | ", j, p, number);
-                print_bits(teacher, m, 64);
-                fprintf(teacher, " | %Le |\n", err);
-            }
-            else if (bits == 128)
-            {
-                long double x = number;
-                long double y;
-                __uint128_t m;
-
-                getMachine(&x, sizeof(long double), &m);
-                getReal(m, sizeof(long double), &y);
-
-                err = fabsl(number - y);
-
-                fprintf(teacher, "| %d | %.*Lf | ", j, p, number);
-                print_bits(teacher, m, 128);
-                fprintf(teacher, " | %Le |\n", err);
-            }
+            if (sh < 64) bit = (unsigned)((lo >> sh) & 1ull);
+            else bit = (unsigned)((hi >> (sh - 64)) & 1ull);
         }
-
-        fclose(student);
-        fclose(teacher);
+        out[i] = bit ? '1' : '0';
     }
-    
-    printf("Готово.\n");    
+    out[bit_qt] = '\0';
+}
+
+static unsigned long long bits_to_u(const char *bits, size_t n)
+{
+    unsigned long long u = 0;
+    for (size_t i = 0; i < n; ++i)
+        u = (u << 1) | (bits[i] == '1' ? 1ull : 0ull);
+    return u;
+}
+
+__float128 toReal(const char *bits, size_t bit_qt)
+{
+    if (bit_qt == 32) {
+        unsigned int u32 = (unsigned int)bits_to_u(bits, 32);
+        float f;
+        memcpy(&f, &u32, sizeof f);
+        return (__float128)f;
+    }
+
+    if (bit_qt == 64) {
+        unsigned long long u64 = bits_to_u(bits, 64);
+        double d;
+        memcpy(&d, &u64, sizeof d);
+        return (__float128)d;
+    }
+
+    if (bit_qt == 128) {
+        // bits[0] = самый левый бит, bits[127] = самый правый
+        unsigned long long hi = bits_to_u(bits, 64);       // старшие 64 бита
+        unsigned long long lo = bits_to_u(bits + 64, 64);  // младшие 64 бита
+
+        __float128 q = 0;
+        // кладём в память q так же, как ты в toMachine lo/hi:
+        // первые 8 байт в lo, следующие 8 байт в hi
+        memcpy((unsigned char*)&q + 0, &lo, 8);
+        memcpy((unsigned char*)&q + 8, &hi, 8);
+        return q;
+    }
+
     return 0;
 }
 
-// Генерация случайного вещественного числа от a до b с p знаками после запятой
-long double rand_num(long double a, long double b, int p) {
-    long double r = a + (long double)rand() / RAND_MAX * (b - a);
-    
-    // Округление до P знаков
-    long double mult = powl(10, p);
-    r = roundl(r * mult) / mult;
-
-    return r;
-}
-
-// Создание файла с заголовком
-FILE* createFile(const char* repository, int numVar, int bits, const char* header, const char* h)
+int main() 
 {
-    char filename[128];
+    srand(time(NULL));
 
-    sprintf(filename, "%s/Вариант%d.md", repository, numVar);
+    size_t n;       // Количество вариантов
+    size_t k;       // Количество заданий в вариантах
+    size_t bit_qt;  // Разрядность чисел в тестовых заданиях
+    double a, b;    // Диапозон вещественных чисел в заданиях
+    size_t p;       // Количество знаков после запятой в числах
 
-    FILE* f = fopen(filename, "w");
+    // FILE *input = fopen("inp32.txt", "r");  // Открытие файл с данными для 32 бит
+    // FILE *input = fopen("inp64.txt", "r");  // Открытие файл с данными для 64 бит
+    FILE *input = fopen("inp128.txt", "r"); // Открытие файл с данными для 128 бит
 
-    fprintf(f, "# Вариант %d.\n\n", numVar);
-    if (bits != 0)
-        fprintf(f, "## Приведите представленные числа к машинному представлению %d бит.\n\n", bits);
+    fscanf(input, "%zu", &n);         // Запись количества вариантов
+    fscanf(input, "%zu", &k);         // Запись количества заданий в вариантах
+    fscanf(input, "%zu", &bit_qt);    // Запись разрядности чисел в тестовых заданиях
+    fscanf(input, "%lf %lf", &a, &b); // Запись диапозона вещественных чисел в заданиях
+    fscanf(input, "%zu", &p);         // Запись количества знаков после запятой в числах
 
-    fprintf(f, "%s", header);
-    fprintf(f, "%s", h);
+    fclose(input); // Закрытие файла с данными
+    
+    if (bit_qt != 32 && bit_qt != 64 && bit_qt != 128) return -7;
 
-    return f;
+    __float128  number128;
+    double number64;
+    float number32;
+
+    char machine[bit_qt+1]; // Массив - представление вещественного числа в машинном виде
+    // bit_qt+1, тк machine[bit_qt] = '\0'
+
+    
+    system("mkdir -p Задания");    // Создание каталога с заданиями для студентов 
+    system("mkdir -p Проверка");   // Создание каталога с проверкой заданий
+
+    // Cоздание файлов заданий
+    for (int i = 1; i < n+1; i++)
+    {
+        char filename[128]; // имя файла
+
+    // Создание файла и запись заголовка для ученика
+        snprintf(filename, sizeof(filename), "Задания/Вариант%d.md", i); 
+        FILE *fileStudent = fopen(filename, "w");
+
+        fprintf(fileStudent, "# Вариант %d.\n\n", i);
+        fprintf(fileStudent, "## Приведите представленные числа к машинному представлению %zu бит.\n\n", bit_qt);
+        
+        // Заголовок для ученика
+        fprintf(fileStudent, "| N | x |\n");
+        fprintf(fileStudent, "|---:|---:|\n");
+
+    // Создание файла и запись заголовка для преподавателя
+        snprintf(filename, sizeof(filename), "Проверка/Вариант%d.md", i); 
+        FILE *fileTeacher = fopen(filename, "w");
+
+        fprintf(fileTeacher, "# Вариант %d\n", i);
+        
+        // Заголовок для преподавателя
+        fprintf(fileTeacher, "| N | X | машинное представление %zu бит | Ошибка |\n", bit_qt);
+        fprintf(fileTeacher, "|---:|---:|---:|---:|\n");
+
+        for (int j = 1; j <= k; j++)
+        {
+            __float128 src = randReal(a, b, p); // исходник числа
+
+            if (bit_qt == 32)
+            {
+                // Округляем исходник src до float
+                number32 = (float)src;
+
+                // Строка с числом 
+                fprintf(fileStudent, "| %d | %.*f |\n", j, (int)p, number32);
+
+                // Машинное представление этого числа
+                toMachine(&number32, sizeof(number32), bit_qt, machine);
+
+                // Восстановили число из битов 
+                __float128 back = toReal(machine, bit_qt);
+
+                // Ошибка округления: разница между исходным src и числом в формате float
+                __float128 err = fabsq(src - back);
+
+                // Строка с чилом, машинным предсталением и округлением
+                fprintf(fileTeacher, "| %d | %.*f | %s | %.20lf |\n", j, (int)p, number32, machine, (double)err);
+            }
+
+            if (bit_qt == 64)
+            {
+                // Округляем исходник src до double
+                number64 = (double)src;
+
+                fprintf(fileStudent, "| %d | %.*f |\n", j, (int)p, number64);
+
+                toMachine(&number64, sizeof(number64), bit_qt, machine);
+
+                // Восстановили число из битов (это будет то же самое, что number64, но как __float128)
+                __float128 back = toReal(machine, bit_qt);
+
+                // Ошибка округления: разница между исходным src и числом в формате double
+                __float128 err = fabsq(src - back);
+
+                fprintf(fileTeacher, "| %d | %.*f | %s | %.20lf |\n", j, (int)p, number64, machine, (double)err);
+            }
+
+            if (bit_qt == 128)
+            {
+                // Для 128: целевой формат тот же, что и исходник src
+                number128 = src;
+
+                fprintf(fileStudent, "| %d | %.*f |\n", j, (int)p, (double)number128);
+
+                toMachine(&number128, sizeof(number128), bit_qt, machine);
+
+                // Восстановили число из битов
+                __float128 back = toReal(machine, bit_qt);
+
+                // Ошибка округления: для 128 (если src уже __float128) обычно 0
+                __float128 err = fabsq(src - back);
+
+                fprintf(fileTeacher, "| %d | %.*f | %s | %.20lf |\n", j, (int)p, (double)number128, machine, (double)err);
+            }
+        }
+    }
+
+    return 0;
 }
+
