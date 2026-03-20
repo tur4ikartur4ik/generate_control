@@ -16,7 +16,7 @@ typedef union {
     __uint128_t u128;
 } U;
 
-int Get(const void* x, size_t type, __uint128_t* out)
+int getMachine(const void* x, size_t type, __uint128_t* out)
 {
     U u = {0};
 
@@ -45,7 +45,7 @@ int Get(const void* x, size_t type, __uint128_t* out)
     }
 }
 
-int back(__uint128_t x, size_t type, void* out)
+int getReal(__uint128_t x, size_t type, void* out)
 {
     U u = {0};
 
@@ -150,8 +150,8 @@ int main() {
                 float y;        // Сюда восстановим число обратно из машинного представления
                 __uint128_t m;  // Здесь будет храниться машинное представление числа x
 
-                Get(&x, sizeof(float), &m); // Переводим float x в его машинное представление
-                back(m, sizeof(float), &y); // Восстанавливаем число y из машинного представления m
+                getMachine(&x, sizeof(float), &m); // Переводим float x в его машинное представление
+                getReal(m, sizeof(float), &y); // Восстанавливаем число y из машинного представления m
 
                 err = fabsl(number - (long double)y); // Вычисляем ошибку после перевода и восстановления
 
@@ -165,8 +165,8 @@ int main() {
                 double y;
                 __uint128_t m;
 
-                Get(&x, sizeof(double), &m);
-                back(m, sizeof(double), &y);
+                getMachine(&x, sizeof(double), &m);
+                getReal(m, sizeof(double), &y);
 
                 err = fabsl(number - (long double)y);
 
@@ -180,8 +180,8 @@ int main() {
                 long double y;
                 __uint128_t m;
 
-                Get(&x, sizeof(long double), &m);
-                back(m, sizeof(long double), &y);
+                getMachine(&x, sizeof(long double), &m);
+                getReal(m, sizeof(long double), &y);
 
                 err = fabsl(number - y);
 
