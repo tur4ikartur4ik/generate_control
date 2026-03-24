@@ -30,7 +30,7 @@ void toMachine(
         const void* number, // Число, которое нужно представить в машинном виде
         size_t number_type, // Сколько байт выделяется для типа данных переменной number
         size_t bit_qt,      // Сколько бит нужно для представления
-        char out[]          // Массив, в котором по символам хранится машинное представление 
+        int out[bit_qt]          // Массив, в котором по символам хранится машинное представление 
     )
 {
     // Прочитать исходное значение в максимально широкую переменную
@@ -87,20 +87,19 @@ void toMachine(
             if (sh < 64) bit = (unsigned)((lo >> sh) & 1ull);
             else bit = (unsigned)((hi >> (sh - 64)) & 1ull);
         }
-        out[i] = bit ? '1' : '0';
+        out[i] = bit ? 1 : 0;
     }
-    out[bit_qt] = '\0';
 }
 
-static unsigned long long bits_to_u(const char *bits, size_t n)
+static unsigned long long bits_to_u(int *bits, size_t n)
 {
     unsigned long long u = 0;
     for (size_t i = 0; i < n; ++i)
-        u = (u << 1) | (bits[i] == '1' ? 1ull : 0ull);
+        u = (u << 1) | (bits[i] == 1 ? 1ull : 0ull);
     return u;
 }
 
-__float128 toReal(const char *bits, size_t bit_qt)
+__float128 toReal(int *bits, size_t bit_qt)
 {
     if (bit_qt == 32) {
         unsigned int u32 = (unsigned int)bits_to_u(bits, 32);
@@ -132,6 +131,12 @@ __float128 toReal(const char *bits, size_t bit_qt)
     return 0;
 }
 
+void printAr(int *a, size_t s, FILE* f)
+{
+    for (int i = 0; i < s; i++)
+        fprintf(f, "%d", a[i]);
+}
+
 int main() 
 {
     srand(time(NULL));
@@ -142,9 +147,9 @@ int main()
     double a, b;    // Диапозон вещественных чисел в заданиях
     size_t p;       // Количество знаков после запятой в числах
 
-    // FILE *input = fopen("inp32.txt", "r");  // Открытие файл с данными для 32 бит
+    FILE *input = fopen("inp32.txt", "r");  // Открытие файл с данными для 32 бит
     // FILE *input = fopen("inp64.txt", "r");  // Открытие файл с данными для 64 бит
-    FILE *input = fopen("inp128.txt", "r"); // Открытие файл с данными для 128 бит
+    // FILE *input = fopen("inp128.txt", "r"); // Открытие файл с данными для 128 бит
 
     fscanf(input, "%zu", &n);         // Запись количества вариантов
     fscanf(input, "%zu", &k);         // Запись количества заданий в вариантах
@@ -160,7 +165,7 @@ int main()
     double number64;
     float number32;
 
-    char machine[bit_qt+1]; // Массив - представление вещественного числа в машинном виде
+    int machine[bit_qt]; // Массив - представление вещественного числа в машинном виде
     // bit_qt+1, тк machine[bit_qt] = '\0'
 
     
@@ -215,7 +220,9 @@ int main()
                 __float128 err = fabsq(src - back);
 
                 // Строка с чилом, машинным предсталением и округлением
-                fprintf(fileTeacher, "| %d | %.*f | %s | %.20lf |\n", j, (int)p, number32, machine, (double)err);
+                fprintf(fileTeacher, "| %d | %.*f |", j, (int)p, number32);
+                printAr(machine, bit_qt, fileTeacher);
+                fprintf(fileTeacher,  "| %.20lf |\n", (double)err);
             }
 
             if (bit_qt == 64)
@@ -233,7 +240,9 @@ int main()
                 // Ошибка округления: разница между исходным src и числом в формате double
                 __float128 err = fabsq(src - back);
 
-                fprintf(fileTeacher, "| %d | %.*f | %s | %.20lf |\n", j, (int)p, number64, machine, (double)err);
+                fprintf(fileTeacher, "| %d | %.*f |", j, (int)p, number64);
+                printAr(machine, bit_qt, fileTeacher);
+                fprintf(fileTeacher,  "| %.20lf |\n", (double)err);
             }
 
             if (bit_qt == 128)
@@ -251,11 +260,12 @@ int main()
                 // Ошибка округления: для 128 (если src уже __float128) обычно 0
                 __float128 err = fabsq(src - back);
 
-                fprintf(fileTeacher, "| %d | %.*f | %s | %.20lf |\n", j, (int)p, (double)number128, machine, (double)err);
+                fprintf(fileTeacher, "| %d | %.*f |", j, (int)p, (double)number128);
+                printAr(machine, bit_qt, fileTeacher);
+                fprintf(fileTeacher,  "| %.20lf |\n", (double)err);
             }
         }
     }
-
     return 0;
 }
 
